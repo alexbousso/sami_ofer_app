@@ -1,41 +1,34 @@
 package com.sami_ofer.samioferproject;
 
-import android.support.v7.app.AppCompatActivity;
+import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.widget.EditText;
 import android.widget.TextView;
 
-import com.google.android.gms.common.ConnectionResult;
-import com.google.android.gms.common.Scopes;
-import com.google.android.gms.common.api.GoogleApiClient;
-import com.google.android.gms.common.api.Scope;
-import com.google.android.gms.plus.Plus;
-import com.parse.FindCallback;
 import com.parse.Parse;
 import com.parse.ParseException;
 import com.parse.ParseObject;
-import com.parse.ParseQuery;
+import com.parse.SaveCallback;
 
-import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-public class MainActivity extends AppCompatActivity implements
-        GoogleApiClient.ConnectionCallbacks,
-        GoogleApiClient.OnConnectionFailedListener,
-        View.OnClickListener {
-
-    private TextView testTextView;
+public class MainActivity extends AppCompatActivity {
+    private EditText emailEditText;
+    private TextView currentSubscriptionText;
+    private SharedPreferences userSettings;
 
     private static final String TAG = "MyActivity";
+    private static final String USER_SETTINGS = "user_settings";
+    private static final String SUBSCRIPTIONS = "Subscriptions";
+    private static final String EMAIL_COLUMN = "Email";
 
-    /* Request code used to invoke sign in user interactions. */
-    private static final int RC_SIGN_IN = 0;
-
-    /* Client used to interact with Google APIs. */
-    private GoogleApiClient googleApiClient;
-
+    private static final String IS_USER_SUBSCRIBED = "isSubscribed";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,17 +39,33 @@ public class MainActivity extends AppCompatActivity implements
         Parse.enableLocalDatastore(this);
         Parse.initialize(this, "1NUErTeg8LzHfGo5pLiuaOAnh6YYoOnAdMbzfMmK", "W0tr12z5hSWy5zeGicaJ6IQUa35XnwXpKoB1bdPv");
 
-        // Initialize Google API Client
-        googleApiClient = new GoogleApiClient.Builder(this)
-                .addConnectionCallbacks(this)
-                .addOnConnectionFailedListener(this)
-                .addApi(Plus.API)
-                .addScope(new Scope(Scopes.PROFILE))
-                .addScope(new Scope(Scopes.EMAIL))
-                .build();
+        // Restore preferences
+        userSettings = getSharedPreferences(USER_SETTINGS, 0);
 
-        testTextView = (TextView) findViewById(R.id.textView);
-        testTextView.setText("Test area:\n");
+        emailEditText = (EditText) findViewById(R.id.emailEditText);
+        currentSubscriptionText = (TextView) findViewById(R.id.currentSubscriptionText);
+
+        setGUI();
+
+        findViewById(R.id.subscribeButton).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                final String email = emailEditText.getText().toString();
+                if (!checkIfValidEmail(email)) {
+                    Log.w(TAG, String.format("Email is not valid: %s", email));
+                    return;
+                }
+                // TODO: In the future, send a validation to check the e-mail
+                subscribeEmail(email);
+            }
+        });
+
+        findViewById(R.id.unsubscribeButton).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                unsubscribe();
+            }
+        });
 
 //        ParseObject testObject = new ParseObject("TestObject");
 //        testObject.put("name", "Alex Bousso");
@@ -104,41 +113,56 @@ public class MainActivity extends AppCompatActivity implements
         return super.onOptionsItemSelected(item);
     }
 
-    @Override
-    protected void onStart() {
-        super.onStart();
-
-        Log.i(TAG, "Connecting to Google...");
-        googleApiClient.connect();
+    private boolean checkIfValidEmail(String email) {
+        // TODO: add some tests
+        Pattern p = Pattern.compile(".+@.+\\.[a-z]+");
+        Matcher m = p.matcher(email);
+        return m.matches();
     }
 
-    @Override
-    protected void onStop() {
-        super.onStop();
-        googleApiClient.disconnect();
+    private void setGUI() {
+        setSubscribedEmailText();
     }
 
-    @Override
-    public void onConnected(Bundle bundle) {
-        Log.i(TAG, "Connection established.");
-        testTextView.append("Got here!\n");
-        testTextView.append(String.format("Plus.PeopleApi.getCurrentPerson(googleApiClient).getId() = %s\n", Plus.PeopleApi.getCurrentPerson(googleApiClient).getId()));
-        testTextView.append(String.format("Plus.PeopleApi.getCurrentPerson(googleApiClient).getName() = %s\n", Plus.PeopleApi.getCurrentPerson(googleApiClient).getName()));
-        testTextView.append(String.format("Plus.PeopleApi.getCurrentPerson(googleApiClient).getAccountName() = %s\n", Plus.AccountApi.getAccountName(googleApiClient)));
+    private void setSubscribedEmailText() {
+        if (userSettings.getBoolean(IS_USER_SUBSCRIBED, false)) {
+            currentSubscriptionText.setText("Subscribed email:\n" + userSettings.getString("email", ""));
+        }
     }
 
-    @Override
-    public void onConnectionSuspended(int i) {
-
+    private void subscribeEmail(final String email) {
+        // TODO: potential bug - subscribing and unsubscribing at the same time
+        unsubscribe();
+        ParseObject parseObject = new ParseObject(SUBSCRIPTIONS);
+        parseObject.put(EMAIL_COLUMN, email);
+        parseObject.saveInBackground(new SaveCallback() {
+            @Override
+            public void done(ParseException e) {
+                SharedPreferences.Editor editor = userSettings.edit();
+                editor.putBoolean(IS_USER_SUBSCRIBED, true);
+                editor.putString("email", email);
+                editor.commit();
+            }
+        });
     }
 
-    @Override
-    public void onClick(View v) {
-
-    }
-
-    @Override
-    public void onConnectionFailed(ConnectionResult connectionResult) {
-        Log.e(TAG, "Connection failed: " + connectionResult.getErrorMessage());
+    private void unsubscribe() {
+        if (userSettings.getBoolean(IS_USER_SUBSCRIBED, false)) {
+            Log.i(TAG, "User is not subscribed and trying to unsubscribe");
+            return;
+        }
+        // TODO: Learn how to remove a row from parse
+        // TODO: potential bug - subscribing and unsubscribing at the same time
+//        ParseObject parseObject = new ParseObject(SUBSCRIPTIONS);
+//        parseObject.remove(userSettings.getString("email", ""));
+//        parseObject.saveInBackground(new SaveCallback() {
+//            @Override
+//            public void done(ParseException e) {
+//                SharedPreferences.Editor editor = userSettings.edit();
+//                editor.putBoolean(IS_USER_SUBSCRIBED, false);
+//                editor.putString("email", "");
+//                editor.commit();
+//            }
+//        });
     }
 }
